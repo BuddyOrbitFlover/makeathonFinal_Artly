@@ -1,0 +1,1 @@
+ /Users/ulvirajabli/Makeathon/makeathonFinal_Artly/.dart_tool/flutter_build/62192a74a10dd103f45f807fbf148326/native_assets.json: 

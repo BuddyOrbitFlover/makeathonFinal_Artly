@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv;
+import 'package:dotenv/dotenv.dart' as dotenv_lib;
 
-// Deinen OpenAI API Key hier eintragen
-final String openAiApiKey = dotenv.dotenv.env['OPENAI_API_KEY'] ?? '';
+final dotenv = dotenv_lib.DotEnv(); // ✅ create instance
+final String openAiApiKey = dotenv['OPENAI_API_KEY'] ?? ''; // ✅ use indexer syntax
 
 Future<Response> handleRequest(Request request) async {
   if (request.method == 'OPTIONS') {
@@ -58,7 +58,6 @@ Future<Response> handleRequest(Request request) async {
           'content': userContent,
         },
       ],
-
       'max_tokens': 300,
     };
 
@@ -93,7 +92,7 @@ Future<Response> handleRequest(Request request) async {
 }
 
 void main() async {
-  await dotenv.dotenv.load(fileName: '.env');
+  dotenv.load(); // ✅ load .env file
   final handler = const Pipeline()
       .addMiddleware(logRequests())
       .addHandler(handleRequest);
