@@ -19,10 +19,10 @@ class CritiqueApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.dark(
-            primary: const Color(0xFF2563EB),
-            secondary: const Color(0xFF60A5FA),
-            surface: const Color(0xFF1E293B),
-            background: const Color(0xFF0F172A),
+            primary: Colors.black,
+            secondary: Colors.black,
+            surface: Colors.black,
+            background: Colors.black,
             onPrimary: Colors.white,
             onSecondary: Colors.white,
             onSurface: Colors.white,
@@ -102,8 +102,6 @@ class SplashLogo extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Image.asset('assets/startingIcon.png', height: 320),
-                const SizedBox(height: 16),
-                const Text('Click to start', style: TextStyle(fontSize: 18)),
               ],
             ),
           ),
@@ -127,17 +125,17 @@ class _MainPageState extends State<MainPage> {
   final List<Map<String, String>> _conversationHistory = [];
   bool _isDragging = false;
   double _imageHeight = 400.0;
-  double _assistantImageHeight = 300.0;
+  double _assistantImageHeight = 500.0;
   bool _showAssistantNextToTitle = false;
-  double _assistantImageWidth = 300.0;
+  double _assistantImageWidth = 500.0;
   List<Map<String, dynamic>> _referenceImages = [];
 
   @override
   void initState() {
     super.initState();
     _imageHeight = 400.0;
-    _assistantImageHeight = 300.0;
-    _assistantImageWidth = 300.0;
+    _assistantImageHeight = 500.0;
+    _assistantImageWidth = 500.0;
     _showAssistantNextToTitle = false;
   }
 
@@ -145,13 +143,13 @@ class _MainPageState extends State<MainPage> {
     setState(() {
       if (_conversationHistory.isEmpty) {
         _imageHeight = 400.0;
-        _assistantImageHeight = 300.0;
-        _assistantImageWidth = 300.0;
+        _assistantImageHeight = 500.0;
+        _assistantImageWidth = 500.0;
         _showAssistantNextToTitle = false;
       } else {
         _imageHeight = 200.0;
-        _assistantImageHeight = 120.0;
-        _assistantImageWidth = 120.0;
+        _assistantImageHeight = 400.0;
+        _assistantImageWidth = 400.0;
         _showAssistantNextToTitle = true;
       }
     });
@@ -176,31 +174,27 @@ class _MainPageState extends State<MainPage> {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
           _responseText = data['response'];
-
-          // Speichere die Konversation in der Historie
           _conversationHistory.add({
             'user': input,
             'chatgpt': _responseText,
           });
-          
-          // Leere das Textfeld
           _textController.clear();
           _updateImageHeights();
         });
       } else {
         setState(() {
-          _responseText = 'Fehler: ${response.statusCode} ${response.body}';
+          _responseText = 'Error: ${response.statusCode} ${response.body}';
         });
       }
     } catch (e) {
       setState(() {
-        _responseText = 'Fehler: $e';
+        _responseText = 'Error: $e';
       });
     } finally {
       setState(() => _loading = false);
@@ -257,106 +251,143 @@ class _MainPageState extends State<MainPage> {
 
   // Pick an image from the gallery
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final XFile? file = await picker.pickImage(source: ImageSource.gallery);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    setState(() => _currentImage = bytes);
-    
+    try {
+      final picker = ImagePicker();
+      final XFile? file = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920, // Limit image size for better performance
+        maxHeight: 1920,
+        imageQuality: 85, // Slightly compress the image
+      );
+      
+      if (file == null) return;
+      
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      
+      setState(() {
+        _currentImage = bytes;
+        _loading = false; // Ensure loading state is reset
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking image: $e')),
+      );
+    }
   }
 
   // Generate a description of the uploaded image using OpenAI's vision capabilities
-Future<void> _analyzeUploadedImage() async {
-  if (_currentImage == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please upload an image first!')),
-    );
-    return;
-  }
+  Future<void> _analyzeUploadedImage() async {
+    if (_currentImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload an image first!')),
+      );
+      return;
+    }
 
-  setState(() => _loading = true);
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _responseText = ''; // Clear previous response
+    });
 
-  final uri = Uri.parse('http://localhost:8080');
-  try {
-    final body = {
-      'image': base64Encode(_currentImage!),
-      'prompt': "Describe the image in 2-3 sentences, focusing on key visual elements."
-    };
+    final uri = Uri.parse('http://localhost:8080');
+    try {
+      final body = {
+        'image': base64Encode(_currentImage!),
+        'prompt': "Describe the image in 2-3 sentences, focusing on key visual elements."
+      };
 
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _responseText = data['response'];
+          _conversationHistory.add({
+            'user': '[Uploaded an artwork for analysis]',
+            'chatgpt': _responseText,
+          });
+          _updateImageHeights();
+        });
+      } else {
+        setState(() {
+          _responseText = 'Error: ${response.statusCode} ${response.body}';
+          _conversationHistory.add({
+            'user': '[Uploaded an artwork for analysis]',
+            'chatgpt': _responseText,
+          });
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _responseText = data['response'];
+        _responseText = 'Error: $e';
         _conversationHistory.add({
           'user': '[Uploaded an artwork for analysis]',
           'chatgpt': _responseText,
         });
       });
-    } else {
-      setState(() {
-        _responseText = 'Fehler: ${response.statusCode} ${response.body}';
-      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
-  } catch (e) {
-    setState(() {
-      _responseText = 'Fehler: $e';
-    });
-  } finally {
-    setState(() => _loading = false);
-  }
-}  
-Future<void> _generalFeedback() async {
-  if (_currentImage == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Bitte lade zuerst ein Bild hoch!')),
-    );
-    return;
   }
 
-  setState(() => _loading = true);
+  Future<void> _generalFeedback() async {
+    if (_currentImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload an image first!')),
+      );
+      return;
+    }
 
-  final uri = Uri.parse('http://localhost:8080');
-  try {
-    final body = {
-      'image': base64Encode(_currentImage!),
-      'prompt': 
-        "Act as a personal art mentor focused on helping users improve their artwork through constructive and professional critique. IMPORTANT: You must always provide feedback, even if the drawing is very simple or abstract. Remember that these are drawings, not real human pictures, so focus on artistic elements rather than realism. When a user uploads an image, carefully analyze the picture based on key artistic principles such as contrast, anatomy, color theory, composition, lighting, and perspective. The feedback is structured, actionable, and encouraging, offering specific advice on what works well and what could be improved. When needed, it will suggest practice exercises or techniques to strengthen weak areas. Important, Give the feedback short in bullet points. Format your response with the following headings (make them stand out by using ALL CAPS and adding extra newlines). Do not use any special symbols like asterisks or stars:\n\n\nRATING\n- Anatomy: [0-10]\n- Coloring: [0-10]\n- Composition: [0-10]\n- Perspective: [0-10]\n\n\nIMPROVEMENT SUGGESTIONS\n[Bullet points of specific suggestions]\n\n\nWHAT WORKS WELL\n[Bullet points of positive aspects]\n\n\nPRACTICE EXERCISES\n[Bullet points of recommended exercises]\n\nAdapt to tone based on the user's experience level—from beginner to advanced—and maintains a supportive, respectful, and motivational voice. Avoid overly harsh criticism and always provides a path forward for improvement. Remember to always provide feedback, even for simple or abstract drawings. Do not use any special symbols in your response."
-        };
+    setState(() => _loading = true);
 
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
+    final uri = Uri.parse('http://localhost:8080');
+    try {
+      final body = {
+        'image': base64Encode(_currentImage!),
+        'prompt': 
+          "Act as a personal art mentor focused on helping users improve their artwork through constructive and professional critique. IMPORTANT: You must always provide feedback, even if the drawing is very simple or abstract. Remember that these are drawings, not real human pictures, so focus on artistic elements rather than realism. When a user uploads an image, carefully analyze the picture based on key artistic principles such as contrast, anatomy, color theory, composition, lighting, and perspective. The feedback is structured, actionable, and encouraging, offering specific advice on what works well and what could be improved. When needed, it will suggest practice exercises or techniques to strengthen weak areas. Important, Give the feedback short in bullet points. Format your response with the following headings (make them stand out by using ALL CAPS and adding extra newlines). Do not use any special symbols like asterisks or stars:\n\n\nRATING\n- Anatomy: [0-10]\n- Coloring: [0-10]\n- Composition: [0-10]\n- Perspective: [0-10]\n\n\nIMPROVEMENT SUGGESTIONS\n[Bullet points of specific suggestions]\n\n\nWHAT WORKS WELL\n[Bullet points of positive aspects]\n\n\nPRACTICE EXERCISES\n[Bullet points of recommended exercises]\n\nAdapt to tone based on the user's experience level—from beginner to advanced—and maintains a supportive, respectful, and motivational voice. Avoid overly harsh criticism and always provides a path forward for improvement. Remember to always provide feedback, even for simple or abstract drawings. Do not use any special symbols in your response."
+          };
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      setState(() {
-        _responseText = data['response'];
-        _conversationHistory.add({
-          'user': '[Uploaded an artwork for analysis]',
-          'chatgpt': _responseText,
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _responseText = data['response'];
+          _conversationHistory.add({
+            'user': '[Uploaded an artwork for analysis]',
+            'chatgpt': _responseText,
+          });
         });
-      });
-    } else {
+      } else {
+        setState(() {
+          _responseText = 'Error: ${response.statusCode} ${response.body}';
+        });
+      }
+    } catch (e) {
       setState(() {
-        _responseText = 'Fehler: ${response.statusCode} ${response.body}';
+        _responseText = 'Error: $e';
       });
+    } finally {
+      setState(() => _loading = false);
     }
-  } catch (e) {
-    setState(() {
-      _responseText = 'Fehler: $e';
-    });
-  } finally {
-    setState(() => _loading = false);
   }
-}
 
   // Show similar images from the search
 
@@ -700,7 +731,71 @@ Future<void> _generalFeedback() async {
   }
 
   Widget _buildLoadingAnimation() {
-    return _LoadingAnimation(key: UniqueKey());
+    return Container(
+      color: Colors.black.withOpacity(0.85),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.grey[900]!.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    'assets/proccessIcon.gif',
+                    height: 400,
+                    gaplessPlayback: true,
+                    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                      if (frame == null) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+                      return child;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Processing...',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: 150,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        backgroundColor: Colors.grey[800],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).colorScheme.primary,
+                        ),
+                        minHeight: 6,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -781,24 +876,28 @@ Future<void> _generalFeedback() async {
                           ),
                           child: Column(
                             children: [
-                              if (_currentImage == null && !_showAssistantNextToTitle)
-                                Center(
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 1000),
-                                    curve: Curves.easeInOutCubic,
-                                    height: _assistantImageHeight,
-                                    width: _assistantImageWidth,
-                                    transform: Matrix4.identity()
-                                      ..translate(0.0, 0.0)
-                                      ..scale(1.0),
-                                    child: Image.asset(
-                                      'assets/assistant.png',
-                                      fit: BoxFit.contain,
+                              if (!_showAssistantNextToTitle)
+                                Expanded(
+                                  flex: 2,
+                                  child: Center(
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 1000),
+                                      curve: Curves.easeInOutCubic,
+                                      height: _assistantImageHeight,
+                                      width: _assistantImageWidth,
+                                      transform: Matrix4.identity()
+                                        ..translate(0.0, 0.0)
+                                        ..scale(1.0),
+                                      child: Image.asset(
+                                        'assets/assistant.png',
+                                        fit: BoxFit.contain,
+                                      ),
                                     ),
                                   ),
                                 ),
                               const SizedBox(height: 20),
                               Expanded(
+                                flex: 1,
                                 child: _conversationHistory.isNotEmpty
                                   ? Container(
                                       decoration: BoxDecoration(
@@ -806,10 +905,10 @@ Future<void> _generalFeedback() async {
                                         borderRadius: BorderRadius.circular(16),
                                       ),
                                       padding: const EdgeInsets.all(12),
-                    child: ListView.builder(
+                                      child: ListView.builder(
                                         reverse: true,
-                      itemCount: _conversationHistory.length,
-                      itemBuilder: (context, index) {
+                                        itemCount: _conversationHistory.length,
+                                        itemBuilder: (context, index) {
                                           final message = _conversationHistory[_conversationHistory.length - 1 - index];
                                           return Card(
                                             color: Colors.grey[800]!.withOpacity(0.5),
@@ -817,17 +916,17 @@ Future<void> _generalFeedback() async {
                                             child: Padding(
                                               padding: const EdgeInsets.all(12),
                                               child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
                                                     'You: ${message['user']}',
-                              style: const TextStyle(
-                                  color: Colors.white,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
                                                       fontWeight: FontWeight.bold,
                                                     ),
-                            ),
+                                                  ),
                                                   const SizedBox(height: 6),
-                            Text(
+                                                  Text(
                                                     'Artly: ${message['chatgpt']}',
                                                     style: TextStyle(
                                                       color: Colors.grey[300],
@@ -837,13 +936,14 @@ Future<void> _generalFeedback() async {
                                                 ],
                                               ),
                                             ),
-                        );
-                      },
-                    ),
+                                          );
+                                        },
+                                      ),
                                     )
                                   : const SizedBox(),
                               ),
                               Container(
+                                margin: const EdgeInsets.only(top: 16),
                                 decoration: BoxDecoration(
                                   color: Theme.of(context).colorScheme.surface,
                                   borderRadius: BorderRadius.circular(12),
@@ -857,21 +957,21 @@ Future<void> _generalFeedback() async {
                                 ),
                                 padding: const EdgeInsets.all(12),
                                 child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _textController,
-                        style: const TextStyle(fontSize: 16),
-                        decoration: InputDecoration(
-                          hintText: 'Ask anything…',
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _textController,
+                                        style: const TextStyle(fontSize: 16),
+                                        decoration: InputDecoration(
+                                          hintText: 'Ask anything…',
                                           hintStyle: TextStyle(color: Colors.grey[400]),
                                           prefixIcon: Icon(Icons.chat, color: Colors.grey[400]),
                                           border: InputBorder.none,
                                           contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onSubmitted: (value) => _sendToChatGPT(),
-                      ),
-                    ),
+                                        ),
+                                        onSubmitted: (value) => _sendToChatGPT(),
+                                      ),
+                                    ),
                                     const SizedBox(width: 12),
                                     Container(
                                       decoration: BoxDecoration(
@@ -882,15 +982,15 @@ Future<void> _generalFeedback() async {
                                           ],
                                         ),
                                         borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.send, size: 28),
-                        color: Colors.white,
-                        onPressed: _sendToChatGPT,
-                      ),
-                    ),
-                  ],
-                ),
+                                      ),
+                                      child: IconButton(
+                                        icon: const Icon(Icons.send, size: 28),
+                                        color: Colors.white,
+                                        onPressed: _sendToChatGPT,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -916,12 +1016,12 @@ Future<void> _generalFeedback() async {
                       alignment: WrapAlignment.center,
                   children: [
                     _ActionButton(
-                      icon: Icons.image_search_outlined,
+                      icon: Icons.auto_awesome,
                       label: 'Analyze Image',
                       onTap: _analyzeUploadedImage,
                     ),
                     _ActionButton(
-                      icon: Icons.image_search_outlined,
+                      icon: Icons.rate_review,
                           label: 'Feedback',
                       onTap: _generalFeedback,
                     ),
@@ -963,118 +1063,21 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 100,
+      width: 50,
+      height: 50,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary.withOpacity(0.7),
-            Theme.of(context).colorScheme.secondary.withOpacity(0.7),
-          ],
-        ),
+        color: Colors.black,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: 1),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 20, color: Colors.white),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+          child: Center(
+            child: Icon(icon, size: 24, color: Colors.white),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LoadingAnimation extends StatefulWidget {
-  const _LoadingAnimation({Key? key}) : super(key: key);
-
-  @override
-  State<_LoadingAnimation> createState() => _LoadingAnimationState();
-}
-
-class _LoadingAnimationState extends State<_LoadingAnimation> {
-  @override
-Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black.withOpacity(0.85),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-        children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.grey[900]!.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Image.asset(
-                    'assets/proccessIcon.gif',
-                    height: 400,
-                    gaplessPlayback: true,
-                    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                      if (frame == null) {
-                        return const Center(
-                          child: CircularProgressIndicator(),
-                        );
-                      }
-                      return child;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Give me a second...',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: 200,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        backgroundColor: Colors.grey[800],
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Theme.of(context).colorScheme.primary,
-                        ),
-                        minHeight: 8,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

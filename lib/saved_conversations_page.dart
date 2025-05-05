@@ -8,7 +8,7 @@ class SavedConversationsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gespeicherte Konversationen'),
+        title: const Text('Saved Conversations'),
       ),
       body: FutureBuilder<List<Map<String, String>>>(
         future: DatabaseHelper().getConversations(),
@@ -19,7 +19,7 @@ class SavedConversationsPage extends StatelessWidget {
 
           final conversations = snapshot.data!;
           if (conversations.isEmpty) {
-            return const Center(child: Text('Keine gespeicherten Konversationen.'));
+            return const Center(child: Text('No saved conversations.'));
           }
 
           return ListView.builder(
