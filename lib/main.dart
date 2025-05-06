@@ -37,7 +37,7 @@ class CritiqueApp extends StatelessWidget {
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
-            fillColor: Colors.grey[800]!.withOpacity(0.5),
+            fillColor: Colors.grey[800]!.withAlpha(64),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
@@ -479,10 +479,10 @@ class _MainPageState extends State<MainPage> {
                     margin: const EdgeInsets.only(right: 12),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
-                      color: Colors.grey[800],
+                      color: Colors.grey[800]!.withAlpha(128),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withAlpha(77),
                           blurRadius: 10,
                           offset: const Offset(0, 5),
                         ),
@@ -507,7 +507,7 @@ class _MainPageState extends State<MainPage> {
                                           borderRadius: BorderRadius.circular(16),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.black.withOpacity(0.3),
+                                              color: Colors.black.withAlpha(77),
                                               blurRadius: 20,
                                               offset: const Offset(0, 10),
                                             ),
@@ -607,13 +607,13 @@ class _MainPageState extends State<MainPage> {
             border: Border.all(
               color: _isDragging
                   ? Theme.of(context).colorScheme.primary
-                  : Colors.grey[800]!,
+                  : Colors.grey[800]!.withAlpha(128),
               width: 2,
               style: BorderStyle.solid,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.black.withAlpha(51),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -633,7 +633,7 @@ class _MainPageState extends State<MainPage> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
+                              color: Colors.black.withAlpha(77),
                               blurRadius: 15,
                               offset: const Offset(0, 8),
                             ),
@@ -658,7 +658,7 @@ class _MainPageState extends State<MainPage> {
                       child: ElevatedButton.icon(
                         onPressed: _pickImage,
                         icon: const Icon(Icons.image),
-                        label: const Text('Neues Bild auswählen'),
+                        label: const Text('Select New Image'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
@@ -678,7 +678,7 @@ class _MainPageState extends State<MainPage> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[800]!.withOpacity(0.3),
+                          color: Colors.grey[800]!.withAlpha(128),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -712,7 +712,7 @@ class _MainPageState extends State<MainPage> {
                       ElevatedButton.icon(
                         onPressed: _pickImage,
                         icon: const Icon(Icons.image),
-                        label: const Text('Select Image'),
+                        label: const Text('Select New Image'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
@@ -732,7 +732,7 @@ class _MainPageState extends State<MainPage> {
 
   Widget _buildLoadingAnimation() {
     return Container(
-      color: Colors.black.withOpacity(0.85),
+      color: Colors.black.withAlpha(217),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -740,11 +740,11 @@ class _MainPageState extends State<MainPage> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.grey[900]!.withOpacity(0.8),
+                color: Colors.grey[900]!.withAlpha(204),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withAlpha(77),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
@@ -827,16 +827,25 @@ class _MainPageState extends State<MainPage> {
         centerTitle: true,
         toolbarHeight: _showAssistantNextToTitle ? 220 : 56,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SavedConversationsPage(),
-                ),
-              );
-            },
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white, width: 1),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.history, size: 28),
+              color: Colors.white,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SavedConversationsPage(),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -868,7 +877,7 @@ class _MainPageState extends State<MainPage> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
+                                color: Colors.black.withAlpha(77),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10),
                               ),
@@ -901,7 +910,7 @@ class _MainPageState extends State<MainPage> {
                                 child: _conversationHistory.isNotEmpty
                                   ? Container(
                                       decoration: BoxDecoration(
-                                        color: Colors.grey[800]!.withOpacity(0.3),
+                                        color: Colors.grey[800]!.withAlpha(128),
                                         borderRadius: BorderRadius.circular(16),
                                       ),
                                       padding: const EdgeInsets.all(12),
@@ -911,7 +920,7 @@ class _MainPageState extends State<MainPage> {
                                         itemBuilder: (context, index) {
                                           final message = _conversationHistory[_conversationHistory.length - 1 - index];
                                           return Card(
-                                            color: Colors.grey[800]!.withOpacity(0.5),
+                                            color: Colors.grey[800]!.withAlpha(128),
                                             margin: const EdgeInsets.only(bottom: 8),
                                             child: Padding(
                                               padding: const EdgeInsets.all(12),
@@ -949,7 +958,7 @@ class _MainPageState extends State<MainPage> {
                                   borderRadius: BorderRadius.circular(12),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withOpacity(0.2),
+                                      color: Colors.black.withAlpha(51),
                                       blurRadius: 10,
                                       offset: const Offset(0, -5),
                                     ),
@@ -1014,28 +1023,28 @@ class _MainPageState extends State<MainPage> {
                       spacing: buttonSpacing,
                       runSpacing: buttonSpacing,
                       alignment: WrapAlignment.center,
-                  children: [
-                    _ActionButton(
-                      icon: Icons.auto_awesome,
-                      label: 'Analyze Image',
-                      onTap: _analyzeUploadedImage,
-                    ),
-                    _ActionButton(
-                      icon: Icons.rate_review,
+                      children: [
+                        _ActionButton(
+                          icon: Icons.auto_awesome,
+                          label: 'Analyze Image',
+                          onTap: _analyzeUploadedImage,
+                        ),
+                        _ActionButton(
+                          icon: Icons.rate_review,
                           label: 'Feedback',
-                      onTap: _generalFeedback,
-                    ),
-                    _ActionButton(
-                      icon: Icons.image_search,
+                          onTap: _generalFeedback,
+                        ),
+                        _ActionButton(
+                          icon: Icons.image_search,
                           label: 'Similar Images',
-                      onTap: _findSimilarImages,
-                    ),
-                    _ActionButton(
-                      icon: Icons.save,
+                          onTap: _findSimilarImages,
+                        ),
+                        _ActionButton(
+                          icon: Icons.save,
                           label: 'Save',
-                      onTap: _saveChat,
-                    ),
-                  ],
+                          onTap: _saveChat,
+                        ),
+                      ],
                     );
                   },
                 ),
