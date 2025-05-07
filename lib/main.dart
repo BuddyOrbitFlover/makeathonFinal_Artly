@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -11,6 +12,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
 
 
 void main() => runApp(const CritiqueApp());
@@ -127,6 +129,7 @@ class _MainPageState extends State<MainPage> {
   final ImagePicker _picker = ImagePicker();
   final GlobalKey _globalKey = GlobalKey();
   final TextEditingController _textController = TextEditingController();
+  final ScrollController _chatScrollController = ScrollController();
   File? _image;
   String _responseText = '';
   bool _loading = false;
@@ -138,6 +141,11 @@ class _MainPageState extends State<MainPage> {
   bool _showAssistantNextToTitle = false;
   double _assistantImageWidth = 500.0;
   List<Map<String, dynamic>> _referenceImages = [];
+  List<Map<String, dynamic>> _highlightedAreas = [];
+  bool _showHighlights = false;
+  final GlobalKey _imageKey = GlobalKey();
+  double? _cachedAspectRatio;
+  Size? _cachedImageSize;
 
   @override
   void initState() {
@@ -164,91 +172,23 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
-  Future<void> _takeScreenshot() async {
+  void _updateImageDimensions(Uint8List? imageBytes) {
+    if (imageBytes == null) {
+      _cachedAspectRatio = null;
+      _cachedImageSize = null;
+      return;
+    }
+
     try {
-      setState(() => _loading = true);
-
-      if (kIsWeb) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'For web browsers, please use your browser\'s screenshot tool:\n'
-              'Windows/Linux: PrtScn or Alt + PrtScn\n'
-              'macOS: Cmd + Shift + 4\n'
-              'Chrome: Three dots menu -> More tools -> Screenshot',
-            ),
-            backgroundColor: Colors.blue,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-        return;
+      final image = img.decodeImage(imageBytes);
+      if (image != null) {
+        _cachedAspectRatio = image.width / image.height;
+        _cachedImageSize = Size(image.width.toDouble(), image.height.toDouble());
       }
-
-      // Native platform screenshot implementation
-      if (_globalKey.currentContext == null) {
-        throw Exception('Unable to find the widget to screenshot');
-      }
-
-      final RenderObject? renderObject = _globalKey.currentContext!.findRenderObject();
-      if (renderObject == null) {
-        throw Exception('Unable to find the render object');
-      }
-
-      if (renderObject is! RenderRepaintBoundary) {
-        throw Exception('Invalid render object type');
-      }
-
-      await Future.delayed(const Duration(milliseconds: 20));
-      
-      final ui.Image image = await renderObject.toImage(pixelRatio: 2.0);
-      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        throw Exception('Failed to convert image to bytes');
-      }
-      
-      final Uint8List imageBytes = byteData.buffer.asUint8List();
-      
-      // Get temporary directory using path_provider
-      final Directory tempDir = await getTemporaryDirectory();
-      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      final File file = File('${tempDir.path}/screenshot_$timestamp.png');
-      await file.writeAsBytes(imageBytes);
-
-      if (!mounted) return;
-
-      setState(() {
-        _image = file;
-        _currentImage = imageBytes;
-        _loading = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Screenshot captured and uploaded!'),
-          duration: Duration(seconds: 2),
-        ),
-      );
     } catch (e) {
-      if (!mounted) return;
-      
-      setState(() => _loading = false);
-      
-      String errorMessage = 'Error taking screenshot: ';
-      if (e.toString().contains('namespace')) {
-        errorMessage += 'Screenshot functionality is not supported on this platform';
-      } else {
-        errorMessage += e.toString();
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          duration: const Duration(seconds: 3),
-          backgroundColor: Colors.red,
-        ),
-      );
-      print('Screenshot error: $e');
+      print('Error calculating image dimensions: $e');
+      _cachedAspectRatio = null;
+      _cachedImageSize = null;
     }
   }
 
@@ -322,25 +262,38 @@ class _MainPageState extends State<MainPage> {
   // Build the chat history UI
   Widget _buildChatHistory() {
     return ListView.builder(
+      controller: _chatScrollController,
       shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: _conversationHistory.length,
       itemBuilder: (context, index) {
         final message = _conversationHistory[index];
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'You: ${message['user']}',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        return Card(
+          color: Colors.grey[800]!.withAlpha(128),
+          margin: const EdgeInsets.only(bottom: 8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'You: ${message['user']}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Artly: ${message['chatgpt']}',
+                  style: TextStyle(
+                    color: Colors.grey[300],
+                    fontSize: 14,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Artly: ${message['chatgpt']}',
-              style: const TextStyle(color: Colors.grey),
-            ),
-            const Divider(color: Colors.grey),
-          ],
+          ),
         );
       },
     );
@@ -352,9 +305,9 @@ class _MainPageState extends State<MainPage> {
       final picker = ImagePicker();
       final XFile? file = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1920, // Limit image size for better performance
+        maxWidth: 1920,
         maxHeight: 1920,
-        imageQuality: 85, // Slightly compress the image
+        imageQuality: 85,
       );
       
       if (file == null) return;
@@ -364,8 +317,9 @@ class _MainPageState extends State<MainPage> {
       
       setState(() {
         _currentImage = bytes;
-        _loading = false; // Ensure loading state is reset
+        _loading = false;
       });
+      _updateImageDimensions(bytes);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -374,7 +328,7 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
-  // Generate a description of the uploaded image using OpenAI's vision capabilities
+  // Optimize the image analysis function
   Future<void> _analyzeUploadedImage() async {
     if (_currentImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -384,13 +338,10 @@ class _MainPageState extends State<MainPage> {
     }
 
     if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _responseText = ''; // Clear previous response
-    });
+    setState(() => _loading = true);
 
-    final uri = Uri.parse('http://localhost:8080');
     try {
+      final uri = Uri.parse('http://localhost:8080');
       final body = {
         'image': base64Encode(_currentImage!),
         'prompt': "Describe the image in 2-3 sentences, focusing on key visual elements."
@@ -406,32 +357,27 @@ class _MainPageState extends State<MainPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final responseText = data['response'];
+        
         setState(() {
-          _responseText = data['response'];
+          _responseText = responseText;
           _conversationHistory.add({
             'user': '[Uploaded an artwork for analysis]',
-            'chatgpt': _responseText,
+            'chatgpt': responseText,
           });
           _updateImageHeights();
         });
       } else {
-        setState(() {
-          _responseText = 'Error: ${response.statusCode} ${response.body}';
-          _conversationHistory.add({
-            'user': '[Uploaded an artwork for analysis]',
-            'chatgpt': _responseText,
-          });
-        });
+        throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _responseText = 'Error: $e';
-        _conversationHistory.add({
-          'user': '[Uploaded an artwork for analysis]',
-          'chatgpt': _responseText,
-        });
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error analyzing image: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -439,6 +385,7 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
+  // Optimize the general feedback function
   Future<void> _generalFeedback() async {
     if (_currentImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -449,13 +396,10 @@ class _MainPageState extends State<MainPage> {
 
     if (!mounted) return;
 
-    setState(() {
-      _loading = true;
-      _responseText = ''; // Clear previous response
-    });
+    setState(() => _loading = true);
 
-    final uri = Uri.parse('http://localhost:8080');
     try {
+      final uri = Uri.parse('http://localhost:8080');
       final body = {
         'image': base64Encode(_currentImage!),
         'prompt': 
@@ -466,38 +410,133 @@ class _MainPageState extends State<MainPage> {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 30)); // Increased timeout
+      ).timeout(const Duration(seconds: 30));
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final responseText = data['response'];
+        
         setState(() {
-          _responseText = data['response'];
+          _responseText = responseText;
           _conversationHistory.add({
             'user': '[Requested feedback on artwork]',
-            'chatgpt': _responseText,
+            'chatgpt': responseText,
           });
-          _updateImageHeights();
         });
+        
+        // After getting feedback, analyze the image for specific areas
+        await _analyzeImageForHighlights();
+        
+        // Update image heights only after both feedback and circles are added
+        if (mounted) {
+          setState(() {
+            _updateImageHeights();
+          });
+        }
       } else {
-        setState(() {
-          _responseText = 'Error: ${response.statusCode} ${response.body}';
-          _conversationHistory.add({
-            'user': '[Requested feedback on artwork]',
-            'chatgpt': _responseText,
-          });
-        });
+        throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _responseText = 'Error: $e';
-        _conversationHistory.add({
-          'user': '[Requested feedback on artwork]',
-          'chatgpt': _responseText,
-        });
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error getting feedback: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  // Optimize the image analysis for highlights
+  Future<void> _analyzeImageForHighlights() async {
+    if (_currentImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload an image first!')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      final uri = Uri.parse('http://localhost:8080');
+      final body = {
+        'image': base64Encode(_currentImage!),
+        'prompt': "Analyze this artwork and identify specific areas that need attention. For each area, provide:\n"
+                 "1. A description of the area\n"
+                 "2. The type of feedback (anatomy, composition, color, etc.)\n"
+                 "3. Relative coordinates (x, y, width, height) as percentages of the image size\n"
+                 "Format your response as a JSON array of objects with these properties. Example format:\n"
+                 "[{\"description\": \"The face proportions are off\", \"type\": \"anatomy\", \"x\": 0.3, \"y\": 0.2, \"width\": 0.4, \"height\": 0.3}]"
+      };
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String responseText = data['response'];
+        
+        // Clean up the response text to ensure it's valid JSON
+        responseText = responseText.trim();
+        if (responseText.startsWith('```json')) {
+          responseText = responseText.substring(7);
+        }
+        if (responseText.endsWith('```')) {
+          responseText = responseText.substring(0, responseText.length - 3);
+        }
+        responseText = responseText.trim();
+        
+        try {
+          final List<dynamic> areas = jsonDecode(responseText);
+          
+          if (!mounted) return;
+          
+          setState(() {
+            _highlightedAreas = areas.map((area) => {
+              'description': area['description'] ?? 'No description',
+              'type': area['type'] ?? 'general',
+              'x': (area['x'] ?? 0.0).toDouble(),
+              'y': (area['y'] ?? 0.0).toDouble(),
+              'width': (area['width'] ?? 0.1).toDouble(),
+              'height': (area['height'] ?? 0.1).toDouble(),
+            }).toList();
+            _showHighlights = true;
+          });
+        } catch (e) {
+          print('Error parsing areas JSON: $e');
+          print('Response text: $responseText');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Error parsing image analysis. Please try again.'),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error analyzing image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error analyzing image: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -699,151 +738,7 @@ class _MainPageState extends State<MainPage> {
       _currentImage = data;
       _isDragging = false;
     });
-  }
-
-  Widget _buildDragTarget() {
-    return DragTarget<Uint8List>(
-      onWillAccept: (data) {
-        setState(() => _isDragging = true);
-        return true;
-      },
-      onAccept: _handleDrop,
-      onLeave: (data) {
-        setState(() => _isDragging = false);
-      },
-      builder: (context, candidateData, rejectedData) {
-        return Container(
-          margin: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.only(
-              topRight: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
-            border: Border.all(
-              color: _isDragging
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey[800]!.withAlpha(128),
-              width: 2,
-              style: BorderStyle.solid,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(51),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: _currentImage != null
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-              children: [
-                    Expanded(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        height: _imageHeight,
-                        margin: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlpha(77),
-                              blurRadius: 15,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.memory(
-                            _currentImage!,
-                    fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Icon(Icons.image_not_supported, size: 50, color: Colors.white),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ElevatedButton.icon(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.image),
-                        label: const Text('Select New Image'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[800]!.withAlpha(128),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.cloud_upload,
-                          size: 64,
-                          color: _isDragging
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Drag image here',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: _isDragging
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'or',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.image),
-                        label: const Text('Select New Image'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-        );
-      },
-    );
+    _updateImageDimensions(data);
   }
 
   Widget _buildLoadingAnimation() {
@@ -912,6 +807,446 @@ class _MainPageState extends State<MainPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _takeScreenshot() async {
+    try {
+      setState(() => _loading = true);
+
+      if (kIsWeb) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'For web browsers, please use your browser\'s screenshot tool:\n'
+              'Windows/Linux: PrtScn or Alt + PrtScn\n'
+              'macOS: Cmd + Shift + 4\n'
+              'Chrome: Three dots menu -> More tools -> Screenshot',
+            ),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
+
+      // Native platform screenshot implementation
+      if (_globalKey.currentContext == null) {
+        throw Exception('Unable to find the widget to screenshot');
+      }
+
+      final RenderObject? renderObject = _globalKey.currentContext!.findRenderObject();
+      if (renderObject == null) {
+        throw Exception('Unable to find the render object');
+      }
+
+      if (renderObject is! RenderRepaintBoundary) {
+        throw Exception('Invalid render object type');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 20));
+      
+      final ui.Image image = await renderObject.toImage(pixelRatio: 2.0);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        throw Exception('Failed to convert image to bytes');
+      }
+      
+      final Uint8List imageBytes = byteData.buffer.asUint8List();
+      
+      // Get temporary directory using path_provider
+      final Directory tempDir = await getTemporaryDirectory();
+      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+      final File file = File('${tempDir.path}/screenshot_$timestamp.png');
+      await file.writeAsBytes(imageBytes);
+
+      if (!mounted) return;
+
+      setState(() {
+        _image = file;
+        _currentImage = imageBytes;
+        _loading = false;
+      });
+      _updateImageDimensions(imageBytes);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Screenshot captured and uploaded!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      
+      setState(() => _loading = false);
+      
+      String errorMessage = 'Error taking screenshot: ';
+      if (e.toString().contains('namespace')) {
+        errorMessage += 'Screenshot functionality is not supported on this platform';
+      } else {
+        errorMessage += e.toString();
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          duration: const Duration(seconds: 3),
+          backgroundColor: Colors.red,
+        ),
+      );
+      print('Screenshot error: $e');
+    }
+  }
+
+  // Add method to toggle highlights
+  void _toggleHighlights() {
+    setState(() {
+      _showHighlights = !_showHighlights;
+    });
+  }
+
+  // Modify the image display widget to include highlights
+  Widget _buildImageWithHighlights() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return GestureDetector(
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (BuildContext context) {
+                return Dialog(
+                  backgroundColor: Colors.transparent,
+                  insetPadding: EdgeInsets.zero,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 40,
+                        right: 20,
+                        child: IconButton(
+                          icon: Icon(Icons.close, color: Colors.white, size: 30),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      Center(
+                        child: InteractiveViewer(
+                          minScale: 0.5,
+                          maxScale: 4.0,
+                          child: Stack(
+                            children: [
+                              Image.memory(
+                                _currentImage!,
+                                fit: BoxFit.contain,
+                              ),
+                              if (_showHighlights && _highlightedAreas.isNotEmpty)
+                                ..._buildHighlightCircles(constraints, isZoomed: true),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+          child: Stack(
+            children: [
+              Image.memory(
+                _currentImage!,
+                key: _imageKey,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.image_not_supported, size: 50, color: Colors.white),
+                  );
+                },
+              ),
+              if (_showHighlights && _highlightedAreas.isNotEmpty)
+                ..._buildHighlightCircles(constraints, isZoomed: false),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Separate method for building highlight circles
+  List<Widget> _buildHighlightCircles(BoxConstraints constraints, {required bool isZoomed}) {
+    if (_currentImage == null || _cachedAspectRatio == null) return [];
+
+    final imageWidth = constraints.maxWidth;
+    final imageHeight = constraints.maxHeight;
+    
+    final baseSize = min(imageWidth, imageHeight) * 0.1;
+    final circleSize = isZoomed ? baseSize * 1.5 : baseSize;
+
+    double actualImageWidth;
+    double actualImageHeight;
+    double xOffset;
+    double yOffset;
+
+    if (_cachedAspectRatio! > 1) {
+      actualImageWidth = imageWidth;
+      actualImageHeight = imageWidth / _cachedAspectRatio!;
+      xOffset = 0;
+      yOffset = (imageHeight - actualImageHeight) / 2;
+    } else {
+      actualImageHeight = imageHeight;
+      actualImageWidth = imageHeight * _cachedAspectRatio!;
+      xOffset = (imageWidth - actualImageWidth) / 2;
+      yOffset = 0;
+    }
+
+    return _highlightedAreas.map((area) {
+      final centerX = area['x'] + (area['width'] / 2);
+      final centerY = area['y'] + (area['height'] / 2);
+
+      final left = xOffset + (centerX * actualImageWidth) - (circleSize / 2);
+      final top = yOffset + (centerY * actualImageHeight) - (circleSize / 2);
+
+      return Positioned(
+        left: left,
+        top: top,
+        child: GestureDetector(
+          onTap: () => _scrollToFeedbackSection(area['type']),
+          child: Container(
+            width: circleSize,
+            height: circleSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _getHighlightColor(area['type']),
+                width: isZoomed ? circleSize * 0.1 : circleSize * 0.08,
+              ),
+              color: _getHighlightColor(area['type']).withOpacity(0.2),
+            ),
+            child: Tooltip(
+              message: '${area['type']}: ${area['description']}',
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _getHighlightColor(area['type']).withOpacity(0.1),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  Color _getHighlightColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'anatomy':
+        return Colors.red;
+      case 'composition':
+        return Colors.blue;
+      case 'color':
+        return Colors.purple;
+      case 'perspective':
+        return Colors.green;
+      default:
+        return Colors.yellow;
+    }
+  }
+
+  // Modify the _buildDragTarget method to use the new image display
+  Widget _buildDragTarget() {
+    return DragTarget<Uint8List>(
+      onWillAccept: (data) {
+        setState(() => _isDragging = true);
+        return true;
+      },
+      onAccept: _handleDrop,
+      onLeave: (data) {
+        setState(() => _isDragging = false);
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Container(
+          margin: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.only(
+              topRight: Radius.circular(24),
+              bottomRight: Radius.circular(24),
+            ),
+            border: Border.all(
+              color: _isDragging
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey[800]!.withAlpha(128),
+              width: 2,
+              style: BorderStyle.solid,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(51),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: _currentImage != null
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Expanded(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        height: _imageHeight,
+                        margin: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(77),
+                              blurRadius: 15,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _buildImageWithHighlights(),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: _pickImage,
+                            icon: const Icon(Icons.image),
+                            label: const Text(''),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (_currentImage != null)
+                            Container(
+                              decoration: BoxDecoration(
+                                color: _showHighlights ? Colors.green : Colors.blue,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: IconButton(
+                                onPressed: _toggleHighlights,
+                                icon: Icon(
+                                  _showHighlights ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                tooltip: _showHighlights ? 'Hide Highlights' : 'Show Highlights',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800]!.withAlpha(128),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.cloud_upload,
+                          size: 64,
+                          color: _isDragging
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Drag image here',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: _isDragging
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'or',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _pickImage,
+                        icon: const Icon(Icons.image),
+                        label: const Text('Select New Image'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+        );
+      },
+    );
+  }
+
+  // Add method to scroll to specific feedback section
+  void _scrollToFeedbackSection(String type) {
+    if (_conversationHistory.isEmpty) return;
+    
+    // Find the last feedback message
+    final lastFeedback = _conversationHistory.last['chatgpt'] as String;
+    
+    // Find the section that matches the feedback type
+    String sectionToFind = '';
+    switch (type.toLowerCase()) {
+      case 'anatomy':
+        sectionToFind = 'ANATOMY';
+        break;
+      case 'composition':
+        sectionToFind = 'COMPOSITION';
+        break;
+      case 'color':
+        sectionToFind = 'COLORING';
+        break;
+      case 'perspective':
+        sectionToFind = 'PERSPECTIVE';
+        break;
+      default:
+        sectionToFind = 'IMPROVEMENT SUGGESTIONS';
+    }
+
+    // Calculate the position to scroll to
+    final sectionIndex = lastFeedback.indexOf(sectionToFind);
+    if (sectionIndex != -1) {
+      // Calculate approximate position based on text length
+      final position = (sectionIndex / lastFeedback.length) * _chatScrollController.position.maxScrollExtent;
+      _chatScrollController.animateTo(
+        position,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
@@ -1032,40 +1367,7 @@ class _MainPageState extends State<MainPage> {
                                           borderRadius: BorderRadius.circular(16),
                                         ),
                                         padding: const EdgeInsets.all(12),
-                                        child: ListView.builder(
-                                          reverse: true,
-                                          itemCount: _conversationHistory.length,
-                                          itemBuilder: (context, index) {
-                                            final message = _conversationHistory[_conversationHistory.length - 1 - index];
-                                            return Card(
-                                              color: Colors.grey[800]!.withAlpha(128),
-                                              margin: const EdgeInsets.only(bottom: 8),
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(12),
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      'You: ${message['user']}',
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontWeight: FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 6),
-                                                    Text(
-                                                      'Artly: ${message['chatgpt']}',
-                                                      style: TextStyle(
-                                                        color: Colors.grey[300],
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
+                                        child: _buildChatHistory(),
                                       )
                                     : const SizedBox(),
                                 ),
